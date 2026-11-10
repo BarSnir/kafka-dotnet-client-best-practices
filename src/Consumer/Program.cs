@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 
 var config = AppConfig.FromEnvironment();
 using var stop = new CancellationTokenSource();
+var fatalError = false;
 Console.CancelKeyPress += (_, eventArgs) => { eventArgs.Cancel = true; stop.Cancel(); };
 using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, _ => stop.Cancel());
 
@@ -29,11 +30,12 @@ using var consumer = new ConsumerBuilder<string, GenericRecord>(consumerConfig)
     .SetErrorHandler((_, error) =>
     {
         Console.Error.WriteLine(error.IsFatal ? $"fatal Kafka error: {error.Reason}" : $"recoverable Kafka notification: {error.Reason}");
-        if (error.IsFatal) stop.Cancel();
+        if (error.IsFatal) { fatalError = true; stop.Cancel(); }
     })
     .Build();
 
 consumer.Subscribe("orders");
+var failed = false;
 try
 {
     while (!stop.IsCancellationRequested)
@@ -43,7 +45,13 @@ try
         catch (ConsumeException exception)
         {
             var record = exception.ConsumerRecord;
-            Console.Error.WriteLine($"deserialization failure at {record?.TopicPartitionOffset}: {exception.Error.Reason}");
+            if (record is null && !exception.Error.IsFatal)
+            {
+                Console.Error.WriteLine($"recoverable consume error: {exception.Error.Reason}");
+                continue;
+            }
+            Console.Error.WriteLine($"consume failure at {record?.TopicPartitionOffset}: {exception.Error.Reason}");
+            failed = true;
             break;
         }
 
@@ -56,12 +64,14 @@ try
         catch (Exception exception)
         {
             Console.Error.WriteLine($"processing failure at {result.TopicPartitionOffset}: {exception.Message}");
+            failed = true;
             break;
         }
     }
 }
 catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
 finally { consumer.Close(); }
+if (failed || fatalError) Environment.ExitCode = 1;
 
 sealed class BlockingDeserializer<T>(IAsyncDeserializer<T> inner) : IDeserializer<T>
 {

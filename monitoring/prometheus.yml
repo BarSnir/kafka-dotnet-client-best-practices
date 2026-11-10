@@ -1,0 +1,14 @@
+global:
+  scrape_interval: 10s
+scrape_configs:
+  - job_name: producer
+    dns_sd_configs:
+      # Compose's embedded DNS returns every replica address for a service name.
+      - names: [producer]
+        type: A
+        port: 8080
+  - job_name: consumer
+    dns_sd_configs:
+      - names: [consumer]
+        type: A
+        port: 8080

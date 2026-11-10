@@ -1,0 +1,48 @@
+services:
+  producer:
+    build:
+      context: .
+      args: { APP: Producer }
+    command: ["Producer.dll"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${PRODUCER_KAFKA_BOOTSTRAP_SERVERS}
+      KAFKA_API_KEY: ${PRODUCER_KAFKA_API_KEY}
+      KAFKA_API_SECRET: ${PRODUCER_KAFKA_API_SECRET}
+      SCHEMA_REGISTRY_URL: ${PRODUCER_SCHEMA_REGISTRY_URL}
+      SCHEMA_REGISTRY_API_KEY: ${PRODUCER_SCHEMA_REGISTRY_API_KEY}
+      SCHEMA_REGISTRY_API_SECRET: ${PRODUCER_SCHEMA_REGISTRY_API_SECRET}
+      EVENTS_PER_SECOND: ${EVENTS_PER_SECOND:-10}
+    expose: ["8080"]
+  consumer:
+    build:
+      context: .
+      args: { APP: Consumer }
+    command: ["Consumer.dll"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${CONSUMER_KAFKA_BOOTSTRAP_SERVERS}
+      KAFKA_API_KEY: ${CONSUMER_KAFKA_API_KEY}
+      KAFKA_API_SECRET: ${CONSUMER_KAFKA_API_SECRET}
+      SCHEMA_REGISTRY_URL: ${CONSUMER_SCHEMA_REGISTRY_URL}
+      SCHEMA_REGISTRY_API_KEY: ${CONSUMER_SCHEMA_REGISTRY_API_KEY}
+      SCHEMA_REGISTRY_API_SECRET: ${CONSUMER_SCHEMA_REGISTRY_API_SECRET}
+    expose: ["8080"]
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports: ["9090:9090"]
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+volumes:
+  prometheus-data:
+  grafana-data:

@@ -1,0 +1,4 @@
+cloud_api_key = "replace-me"
+cloud_api_secret = "replace-me"
+# region = "us-east-2"
+# partitions = 3

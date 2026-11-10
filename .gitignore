@@ -1,0 +1,9 @@
+.env
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!terraform/terraform.tfvars.example
+bin/
+obj/

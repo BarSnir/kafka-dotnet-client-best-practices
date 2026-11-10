@@ -1,31 +1,73 @@
+x-producer: &producer
+  build:
+    context: .
+    args: { APP: Producer }
+  command: ["Producer.dll"]
+  environment: &producer-env
+    KAFKA_BOOTSTRAP_SERVERS: ${PRODUCER_KAFKA_BOOTSTRAP_SERVERS}
+    KAFKA_API_KEY: ${PRODUCER_KAFKA_API_KEY}
+    KAFKA_API_SECRET: ${PRODUCER_KAFKA_API_SECRET}
+    SCHEMA_REGISTRY_URL: ${PRODUCER_SCHEMA_REGISTRY_URL}
+    SCHEMA_REGISTRY_API_KEY: ${PRODUCER_SCHEMA_REGISTRY_API_KEY}
+    SCHEMA_REGISTRY_API_SECRET: ${PRODUCER_SCHEMA_REGISTRY_API_SECRET}
+    EVENTS_PER_SECOND: 10
+    PAYLOAD_BYTES: 0
+    HOT_PARTITION: "false"
+    PRINT_EVERY: 1
+  expose: ["8080"]
+
+x-consumer: &consumer
+  build:
+    context: .
+    args: { APP: Consumer }
+  command: ["Consumer.dll"]
+  environment: &consumer-env
+    KAFKA_BOOTSTRAP_SERVERS: ${CONSUMER_KAFKA_BOOTSTRAP_SERVERS}
+    KAFKA_API_KEY: ${CONSUMER_KAFKA_API_KEY}
+    KAFKA_API_SECRET: ${CONSUMER_KAFKA_API_SECRET}
+    SCHEMA_REGISTRY_URL: ${CONSUMER_SCHEMA_REGISTRY_URL}
+    SCHEMA_REGISTRY_API_KEY: ${CONSUMER_SCHEMA_REGISTRY_API_KEY}
+    SCHEMA_REGISTRY_API_SECRET: ${CONSUMER_SCHEMA_REGISTRY_API_SECRET}
+    PRINT_EVERY: 1
+  expose: ["8080"]
+
 services:
-  producer:
-    build:
-      context: .
-      args: { APP: Producer }
-    command: ["Producer.dll"]
+  producer-standard:
+    <<: *producer
+    profiles: [standard]
+  consumer-standard:
+    <<: *consumer
+    profiles: [standard]
+  producer-high-throughput:
+    <<: *producer
+    profiles: [high-throughput]
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: ${PRODUCER_KAFKA_BOOTSTRAP_SERVERS}
-      KAFKA_API_KEY: ${PRODUCER_KAFKA_API_KEY}
-      KAFKA_API_SECRET: ${PRODUCER_KAFKA_API_SECRET}
-      SCHEMA_REGISTRY_URL: ${PRODUCER_SCHEMA_REGISTRY_URL}
-      SCHEMA_REGISTRY_API_KEY: ${PRODUCER_SCHEMA_REGISTRY_API_KEY}
-      SCHEMA_REGISTRY_API_SECRET: ${PRODUCER_SCHEMA_REGISTRY_API_SECRET}
-      EVENTS_PER_SECOND: ${EVENTS_PER_SECOND:-10}
-    expose: ["8080"]
-  consumer:
-    build:
-      context: .
-      args: { APP: Consumer }
-    command: ["Consumer.dll"]
+      <<: *producer-env
+      EVENTS_PER_SECOND: 100
+      PAYLOAD_BYTES: 131072
+      HOT_PARTITION: "true"
+      PRINT_EVERY: 100
+  consumer-high-throughput:
+    <<: *consumer
+    profiles: [high-throughput]
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: ${CONSUMER_KAFKA_BOOTSTRAP_SERVERS}
-      KAFKA_API_KEY: ${CONSUMER_KAFKA_API_KEY}
-      KAFKA_API_SECRET: ${CONSUMER_KAFKA_API_SECRET}
-      SCHEMA_REGISTRY_URL: ${CONSUMER_SCHEMA_REGISTRY_URL}
-      SCHEMA_REGISTRY_API_KEY: ${CONSUMER_SCHEMA_REGISTRY_API_KEY}
-      SCHEMA_REGISTRY_API_SECRET: ${CONSUMER_SCHEMA_REGISTRY_API_SECRET}
-    expose: ["8080"]
+      <<: *consumer-env
+      PRINT_EVERY: 100
+  producer-throttle:
+    <<: *producer
+    profiles: [throttle]
+    environment:
+      <<: *producer-env
+      EVENTS_PER_SECOND: 200
+      PAYLOAD_BYTES: 131072
+      HOT_PARTITION: "true"
+      PRINT_EVERY: 100
+  consumer-throttle:
+    <<: *consumer
+    profiles: [throttle]
+    environment:
+      <<: *consumer-env
+      PRINT_EVERY: 100
   prometheus:
     image: prom/prometheus:v3.0.1
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]

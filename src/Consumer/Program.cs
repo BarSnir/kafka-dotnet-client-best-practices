@@ -6,6 +6,8 @@ using Shared;
 using System.Runtime.InteropServices;
 
 var config = AppConfig.FromEnvironment();
+var printEvery = int.TryParse(Environment.GetEnvironmentVariable("PRINT_EVERY"), out var printValue) ? Math.Max(1, printValue) : 1;
+long processed = 0;
 using var stop = new CancellationTokenSource();
 var fatalError = false;
 Console.CancelKeyPress += (_, eventArgs) => { eventArgs.Cancel = true; stop.Cancel(); };
@@ -58,7 +60,8 @@ try
         try
         {
             var order = result.Message.Value;
-            Console.WriteLine($"orderId={order["orderId"]} customerId={order["customerId"]} amountCents={order["amountCents"]} partition={result.Partition.Value} offset={result.Offset.Value}");
+            if (Interlocked.Increment(ref processed) % printEvery == 0)
+                Console.WriteLine($"orderId={order["orderId"]} customerId={order["customerId"]} amountCents={order["amountCents"]} payloadBytes={((byte[])order["payload"]).Length} partition={result.Partition.Value} offset={result.Offset.Value}");
             consumer.StoreOffset(result);
         }
         catch (Exception exception)

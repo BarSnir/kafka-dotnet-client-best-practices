@@ -7,6 +7,9 @@ using System.Runtime.InteropServices;
 
 var config = AppConfig.FromEnvironment();
 var eventsPerSecond = int.TryParse(Environment.GetEnvironmentVariable("EVENTS_PER_SECOND"), out var value) ? Math.Max(1, value) : 10;
+var payloadBytes = int.TryParse(Environment.GetEnvironmentVariable("PAYLOAD_BYTES"), out var bytes) ? Math.Clamp(bytes, 0, 512 * 1024) : 0;
+var hotPartition = bool.TryParse(Environment.GetEnvironmentVariable("HOT_PARTITION"), out var hot) && hot;
+var printEvery = int.TryParse(Environment.GetEnvironmentVariable("PRINT_EVERY"), out var printValue) ? Math.Max(1, printValue) : 1;
 using var stop = new CancellationTokenSource();
 var fatalError = false;
 Console.CancelKeyPress += (_, eventArgs) => { eventArgs.Cancel = true; stop.Cancel(); };
@@ -42,7 +45,7 @@ try
     while (!stop.IsCancellationRequested)
     {
         await outstanding.WaitAsync(stop.Token);
-        var order = OrderFactory.Create();
+        var order = OrderFactory.Create(payloadBytes, hotPartition);
         var orderId = (string)order["orderId"];
         var customerId = (string)order["customerId"];
         Task<DeliveryResult<string, GenericRecord>> send;
@@ -64,8 +67,8 @@ try
                     }
                     else
                     {
-                        Interlocked.Increment(ref succeeded);
-                        Console.WriteLine($"delivered orderId={orderId} partition={task.Result.Partition.Value} offset={task.Result.Offset.Value}");
+                        if (Interlocked.Increment(ref succeeded) % printEvery == 0)
+                            Console.WriteLine($"delivered orderId={orderId} partition={task.Result.Partition.Value} offset={task.Result.Offset.Value}");
                     }
                 }
                 finally { outstanding.Release(); }

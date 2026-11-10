@@ -5,6 +5,7 @@
   "fields": [
     { "name": "orderId", "type": "string" },
     { "name": "customerId", "type": "string" },
-    { "name": "amountCents", "type": "int" }
+    { "name": "amountCents", "type": "int" },
+    { "name": "payload", "type": "bytes", "default": "" }
   ]
 }

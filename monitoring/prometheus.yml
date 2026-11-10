@@ -4,11 +4,11 @@ scrape_configs:
   - job_name: producer
     dns_sd_configs:
       # Compose's embedded DNS returns every replica address for a service name.
-      - names: [producer]
+      - names: [producer-standard, producer-high-throughput, producer-throttle]
         type: A
         port: 8080
   - job_name: consumer
     dns_sd_configs:
-      - names: [consumer]
+      - names: [consumer-standard, consumer-high-throughput, consumer-throttle]
         type: A
         port: 8080

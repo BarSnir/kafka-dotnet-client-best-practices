@@ -9,13 +9,16 @@ public static class OrderFactory
     private static readonly string[] Customers = ["customer-a", "customer-b", "customer-c"];
     private static int _nextCustomer;
 
-    public static GenericRecord Create()
+    public static GenericRecord Create(int payloadBytes = 0, bool hotPartition = false)
     {
-        var customer = Customers[Interlocked.Increment(ref _nextCustomer) % Customers.Length];
+        var customer = hotPartition ? Customers[0] : Customers[Interlocked.Increment(ref _nextCustomer) % Customers.Length];
         var order = new GenericRecord(Schema);
         order.Add("orderId", Guid.NewGuid().ToString("N"));
         order.Add("customerId", customer);
         order.Add("amountCents", Random.Shared.Next(100, 100000));
+        var payload = new byte[payloadBytes];
+        Random.Shared.NextBytes(payload);
+        order.Add("payload", payload);
         return order;
     }
 }

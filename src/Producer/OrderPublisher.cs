@@ -8,7 +8,8 @@ internal sealed class OrderPublisher(
     string topic,
     OrderFactory orders,
     WorkloadOptions workload,
-    ProducerShutdown shutdown)
+    ProducerShutdown shutdown,
+    KafkaMetrics metrics)
 {
     private const int MaxOutstanding = 100;
     private static readonly TimeSpan DrainTimeout = TimeSpan.FromSeconds(30);
@@ -37,7 +38,12 @@ internal sealed class OrderPublisher(
 
     private async Task PublishOrdersAsync(CancellationToken token)
     {
-        var interval = TimeSpan.FromSeconds(1d / workload.EventsPerSecond);
+        var targets = GetTargets();
+        var secondsPerRecord = workload.PartitionTargetMbps > 0
+            ? workload.PayloadBytes * 8d / (workload.PartitionTargetMbps * 1_000_000d * targets.Length)
+            : 1d / workload.EventsPerSecond;
+        var interval = TimeSpan.FromSeconds(secondsPerRecord);
+        var targetIndex = 0;
         var clock = Stopwatch.StartNew();
         var nextSend = TimeSpan.Zero;
 
@@ -45,13 +51,26 @@ internal sealed class OrderPublisher(
         {
             if (deliveries.Count == MaxOutstanding) await WaitForCapacityAsync(token);
             var order = orders.Create(workload.PayloadBytes, workload.HotPartition);
-            deliveries.Add(DeliverAsync(order));
+            deliveries.Add(DeliverAsync(targets[targetIndex], order));
+            targetIndex = (targetIndex + 1) % targets.Length;
 
             nextSend += interval;
             var delay = nextSend - clock.Elapsed;
             if (delay > TimeSpan.Zero) await Task.Delay(delay, token);
             else nextSend = clock.Elapsed;
         }
+    }
+
+    private TopicPartition[] GetTargets()
+    {
+        if (workload.PartitionTargetMbps == 0) return [new TopicPartition(topic, Partition.Any)];
+        if (workload.PayloadBytes == 0) throw new ArgumentException("Per-partition pacing requires a positive PAYLOAD_BYTES.");
+
+        using var admin = new DependentAdminClientBuilder(producer.Handle).Build();
+        var metadata = admin.GetMetadata(topic, TimeSpan.FromSeconds(30)).Topics.Single(t => t.Topic == topic);
+        if (metadata.Error.IsError) throw new KafkaException(metadata.Error);
+        if (metadata.Partitions.Count == 0) throw new InvalidOperationException($"No partitions found for {topic}.");
+        return metadata.Partitions.Select(p => new TopicPartition(topic, new Partition(p.PartitionId))).ToArray();
     }
 
     private async Task WaitForCapacityAsync(CancellationToken token)
@@ -63,12 +82,13 @@ internal sealed class OrderPublisher(
         token.ThrowIfCancellationRequested();
     }
 
-    private async Task DeliverAsync(Message<string, GenericRecord> order)
+    private async Task DeliverAsync(TopicPartition target, Message<string, GenericRecord> order)
     {
         var id = (string)order.Value["orderId"];
         try
         {
-            var result = await producer.ProduceAsync(topic, order);
+            var result = await producer.ProduceAsync(target, order);
+            if (workload.PayloadBytes > 0) metrics.RecordDeliveredPayload(result.Partition.Value, workload.PayloadBytes);
             if (Interlocked.Increment(ref succeeded) % workload.PrintEvery == 0)
                 Console.WriteLine($"delivered orderId={id} partition={result.Partition.Value} offset={result.Offset.Value}");
         }

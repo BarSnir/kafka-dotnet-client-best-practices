@@ -1,6 +1,6 @@
 namespace Shared;
 
-public sealed record WorkloadOptions(int EventsPerSecond, int PayloadBytes, bool HotPartition, int PrintEvery)
+public sealed record WorkloadOptions(int EventsPerSecond, int PayloadBytes, bool HotPartition, int PrintEvery, int PartitionTargetMbps = 0)
 {
     public static WorkloadOptions Load()
     {
@@ -12,7 +12,8 @@ public sealed record WorkloadOptions(int EventsPerSecond, int PayloadBytes, bool
         return new WorkloadOptions(
             ReadInt("EVENTS_PER_SECOND", 10, 1, 1000),
             ReadInt("PAYLOAD_BYTES", 0, 0, 524288),
-            hot, ReadInt("PRINT_EVERY", 1, 1, int.MaxValue));
+            hot, ReadInt("PRINT_EVERY", 1, 1, int.MaxValue),
+            ReadInt("PARTITION_TARGET_MBPS", 0, 0, 1000));
     }
 
     private static int ReadInt(string name, int fallback, int min, int max)

@@ -268,6 +268,24 @@
         "w": 24,
         "h": 8
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "Acknowledged generated payload by partition (Mbps)",
+      "description": "Random workload bytes in successfully delivered records, including demo-payload headers. Decimal megabits per second.",
+      "targets": [
+        {
+          "expr": "rate(kafka_producer_delivered_payload_bytes_total{client_id!=\"\"}[1m]) * 8 / 1e6",
+          "refId": "A",
+          "legendFormat": "{{client_id}} / p{{partition}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 24,
+        "h": 8
+      }
     }
   ]
 }

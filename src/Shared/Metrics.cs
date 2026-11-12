@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 using System.Globalization;
 using System.Net;
@@ -8,6 +9,7 @@ namespace Shared;
 
 public sealed class KafkaMetrics : IDisposable
 {
+    private readonly ConcurrentDictionary<int, long> _deliveredPayload = new();
     private readonly string _role;
     private readonly string _instance = Environment.MachineName;
     private readonly Channel<string> _statistics = Channel.CreateUnbounded<string>();
@@ -25,6 +27,9 @@ public sealed class KafkaMetrics : IDisposable
         _parser = Task.Run(ParseLoop);
         _server = Task.Run(ServerLoop);
     }
+
+    public void RecordDeliveredPayload(int partition, int bytes) =>
+        _deliveredPayload.AddOrUpdate(partition, bytes, (_, total) => total + bytes);
 
     public void Publish(string json)
     {
@@ -55,7 +60,7 @@ public sealed class KafkaMetrics : IDisposable
             try
             {
                 var context = await _listener.GetContextAsync();
-                var body = Encoding.UTF8.GetBytes(_snapshot.Render(_role, _instance));
+                var body = Encoding.UTF8.GetBytes(_snapshot.Render(_role, _instance, _deliveredPayload));
                 context.Response.ContentType = "text/plain; version=0.0.4";
                 context.Response.ContentLength64 = body.Length;
                 await context.Response.OutputStream.WriteAsync(body);
@@ -153,7 +158,7 @@ public sealed class KafkaMetrics : IDisposable
             return snapshot;
         }
 
-        public string Render(string role, string instance)
+        public string Render(string role, string instance, ConcurrentDictionary<int, long> deliveredPayload)
         {
             var labels = $"client_id=\"{Escape(_clientId)}\",role=\"{role}\",instance=\"{Escape(instance)}\"";
             var builder = new StringBuilder();
@@ -175,6 +180,8 @@ public sealed class KafkaMetrics : IDisposable
             }
             foreach (var item in _partitionBytes) Add(builder, "kafka_client_partition_tx_bytes_total", item.Value, $"{labels},topic=\"orders\",partition=\"{item.Key}\"");
             foreach (var item in _lags) Add(builder, "kafka_client_consumer_lag", item.Value, $"{labels},topic=\"orders\",partition=\"{item.Key}\"");
+            foreach (var (partition, bytes) in deliveredPayload)
+                Add(builder, "kafka_producer_delivered_payload_bytes_total", bytes, $"{labels},partition=\"{partition}\"");
             return builder.ToString();
         }
 

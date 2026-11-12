@@ -12,7 +12,7 @@ using var registry = new CachedSchemaRegistryClient(config.SchemaRegistry());
 var orders = await LoadOrdersAsync(registry, topic + "-value");
 using var producer = ProducerFactory.Create(config, registry, metrics.Publish, shutdown.OnKafkaError);
 
-var publisher = new OrderPublisher(producer, topic, orders, workload, shutdown);
+var publisher = new OrderPublisher(producer, topic, orders, workload, shutdown, metrics);
 return await publisher.RunAsync();
 
 static async Task<OrderFactory> LoadOrdersAsync(ISchemaRegistryClient registry, string subject)

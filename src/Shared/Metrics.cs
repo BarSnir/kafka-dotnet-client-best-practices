@@ -79,6 +79,7 @@ public sealed class KafkaMetrics : IDisposable
         private readonly Dictionary<string, double> _brokerRetries = [];
         private readonly Dictionary<string, double> _brokerRtt = [];
         private readonly Dictionary<string, double> _brokerThrottle = [];
+        private readonly Dictionary<string, double> _partitionBytes = [];
         private readonly Dictionary<string, double> _lags = [];
 
         public static Snapshot Parse(string json, string role)
@@ -105,9 +106,15 @@ public sealed class KafkaMetrics : IDisposable
                     if (broker.Value.TryGetProperty("throttle", out var throttle))
                         snapshot._brokerThrottle[broker.Name] = Number(throttle, "cnt") > 0 ? Number(throttle, "avg") : 0;
                 }
-            if (role == "consumer" && root.TryGetProperty("topics", out var topics) && topics.TryGetProperty("orders", out var orders) && orders.TryGetProperty("partitions", out var partitions))
+            if (root.TryGetProperty("topics", out var topics) && topics.TryGetProperty("orders", out var orders) && orders.TryGetProperty("partitions", out var partitions))
                 foreach (var partition in partitions.EnumerateObject())
                 {
+                    if (partition.Name == "-1") continue;
+                    if (role == "producer")
+                    {
+                        snapshot._partitionBytes[partition.Name] = Number(partition.Value, "txbytes");
+                        continue;
+                    }
                     var lag = Number(partition.Value, "consumer_lag");
                     // Numbered, desired partitions are the consumer's current assignment; -1 is topic-wide.
                     if (partition.Name != "-1" && lag >= 0 && partition.Value.TryGetProperty("fetch_state", out var fetchState) && fetchState.GetString() == "active")
@@ -130,6 +137,7 @@ public sealed class KafkaMetrics : IDisposable
             foreach (var item in _brokerRetries) Add(builder, "kafka_client_broker_txretries_total", item.Value, $"{labels},broker=\"{Escape(item.Key)}\"");
             foreach (var item in _brokerRtt) Add(builder, "kafka_client_broker_rtt_p95_ms", item.Value, $"{labels},broker=\"{Escape(item.Key)}\"");
             foreach (var item in _brokerThrottle) Add(builder, "kafka_client_broker_throttle_avg_ms", item.Value, $"{labels},broker=\"{Escape(item.Key)}\"");
+            foreach (var item in _partitionBytes) Add(builder, "kafka_client_partition_tx_bytes_total", item.Value, $"{labels},topic=\"orders\",partition=\"{item.Key}\"");
             foreach (var item in _lags) Add(builder, "kafka_client_consumer_lag", item.Value, $"{labels},topic=\"orders\",partition=\"{item.Key}\"");
             return builder.ToString();
         }

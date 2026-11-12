@@ -2,7 +2,7 @@
   "title": "Kafka .NET Client Metrics",
   "uid": "kafka-dotnet-client-metrics",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "panels": [
     {
       "type": "row",
@@ -217,6 +217,23 @@
         "x": 12,
         "y": 35,
         "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Produced MB/s by partition",
+      "targets": [
+        {
+          "expr": "sum by (partition) (rate(kafka_client_partition_tx_bytes_total[1m])) / 1e6",
+          "refId": "A",
+          "legendFormat": "partition {{partition}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 24,
         "h": 8
       }
     }

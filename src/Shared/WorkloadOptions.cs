@@ -4,22 +4,15 @@ public sealed record WorkloadOptions(int EventsPerSecond, int PayloadBytes, bool
 {
     public static WorkloadOptions Load()
     {
-        var defaults = (Environment.GetEnvironmentVariable("LOAD_PROFILE") ?? "standard") switch
-        {
-            "standard" => new WorkloadOptions(10, 0, false, 1),
-            "high-throughput" => new WorkloadOptions(100, 131072, true, 100),
-            "throttle" => new WorkloadOptions(200, 131072, true, 100),
-            var name => throw new ArgumentException($"Unknown LOAD_PROFILE '{name}'.")
-        };
         var rawHot = Environment.GetEnvironmentVariable("HOT_PARTITION");
-        var hot = defaults.HotPartition;
+        var hot = false;
         if (!string.IsNullOrWhiteSpace(rawHot) && !bool.TryParse(rawHot, out hot))
             throw new ArgumentException("HOT_PARTITION must be true or false.");
 
         return new WorkloadOptions(
-            ReadInt("EVENTS_PER_SECOND", defaults.EventsPerSecond, 1, 1000),
-            ReadInt("PAYLOAD_BYTES", defaults.PayloadBytes, 0, 524288),
-            hot, ReadInt("PRINT_EVERY", defaults.PrintEvery, 1, int.MaxValue));
+            ReadInt("EVENTS_PER_SECOND", 10, 1, 1000),
+            ReadInt("PAYLOAD_BYTES", 0, 0, 524288),
+            hot, ReadInt("PRINT_EVERY", 1, 1, int.MaxValue));
     }
 
     private static int ReadInt(string name, int fallback, int min, int max)

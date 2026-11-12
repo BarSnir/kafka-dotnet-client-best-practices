@@ -42,6 +42,9 @@ async Task DeliverAsync(GenericRecord order)
     }
 }
 
+var interval = TimeSpan.FromSeconds(1d / workload.EventsPerSecond);
+var clock = System.Diagnostics.Stopwatch.StartNew();
+var nextSend = TimeSpan.Zero;
 try
 {
     while (!stop.IsCancellationRequested)
@@ -56,7 +59,10 @@ try
             }
         }
         deliveries.Add(DeliverAsync(OrderFactory.Create(workload.PayloadBytes, workload.HotPartition)));
-        await Task.Delay(TimeSpan.FromSeconds(1d / workload.EventsPerSecond), stop.Token);
+        nextSend += interval;
+        var delay = nextSend - clock.Elapsed;
+        if (delay > TimeSpan.Zero) await Task.Delay(delay, stop.Token);
+        else nextSend = clock.Elapsed;
     }
 }
 catch (OperationCanceledException) when (stop.IsCancellationRequested) { }

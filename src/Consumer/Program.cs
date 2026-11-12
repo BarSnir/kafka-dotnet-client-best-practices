@@ -1,40 +1,24 @@
 using Avro.Generic;
 using Confluent.Kafka;
 using Confluent.SchemaRegistry;
-using Confluent.SchemaRegistry.Serdes;
 using Shared;
 using System.Runtime.InteropServices;
 
 var config = AppConfig.FromEnvironment();
-var printEvery = int.TryParse(Environment.GetEnvironmentVariable("PRINT_EVERY"), out var printValue) ? Math.Max(1, printValue) : 1;
+var workload = WorkloadOptions.Load();
 long processed = 0;
 using var stop = new CancellationTokenSource();
 var fatalError = false;
 Console.CancelKeyPress += (_, eventArgs) => { eventArgs.Cancel = true; stop.Cancel(); };
-using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, _ => stop.Cancel());
+using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal => { signal.Cancel = true; stop.Cancel(); });
 
 using var metrics = new KafkaMetrics("consumer");
 using var schemaRegistry = new CachedSchemaRegistryClient(config.SchemaRegistry());
-var consumerConfig = new ConsumerConfig(config.Kafka("orders-consumer"))
+using var consumer = ConsumerFactory.Create(config, schemaRegistry, metrics.Publish, error =>
 {
-    GroupId = "orders-demo",
-    GroupProtocol = GroupProtocol.Consumer,
-    AutoOffsetReset = AutoOffsetReset.Earliest,
-    EnableAutoCommit = true,
-    EnableAutoOffsetStore = false
-};
-using var consumer = new ConsumerBuilder<string, GenericRecord>(consumerConfig)
-    .SetValueDeserializer(new BlockingDeserializer<GenericRecord>(new AvroDeserializer<GenericRecord>(schemaRegistry, new AvroDeserializerConfig
-    {
-        SubjectNameStrategy = SubjectNameStrategy.Topic
-    })))
-    .SetStatisticsHandler((_, statistics) => metrics.Publish(statistics))
-    .SetErrorHandler((_, error) =>
-    {
-        Console.Error.WriteLine(error.IsFatal ? $"fatal Kafka error: {error.Reason}" : $"recoverable Kafka notification: {error.Reason}");
-        if (error.IsFatal) { fatalError = true; stop.Cancel(); }
-    })
-    .Build();
+    Console.Error.WriteLine($"Kafka notification code={error.Code} fatal={error.IsFatal}: {error.Reason}");
+    if (error.IsFatal) { fatalError = true; stop.Cancel(); }
+});
 
 consumer.Subscribe("orders");
 var failed = false;
@@ -47,12 +31,12 @@ try
         catch (ConsumeException exception)
         {
             var record = exception.ConsumerRecord;
-            if (record is null && !exception.Error.IsFatal)
+            if (record is null && !exception.Error.IsFatal && !KafkaFailures.RequiresIntervention(exception.Error.Code))
             {
-                Console.Error.WriteLine($"recoverable consume error: {exception.Error.Reason}");
+                Console.Error.WriteLine($"recoverable consume error: {KafkaFailures.Describe(exception)}");
                 continue;
             }
-            Console.Error.WriteLine($"consume failure at {record?.TopicPartitionOffset}: {exception.Error.Reason}");
+            Console.Error.WriteLine($"consume failure at {record?.TopicPartitionOffset}: {KafkaFailures.Describe(exception)}");
             failed = true;
             break;
         }
@@ -60,8 +44,8 @@ try
         try
         {
             var order = result.Message.Value;
-            if (Interlocked.Increment(ref processed) % printEvery == 0)
-                Console.WriteLine($"orderId={order["orderId"]} customerId={order["customerId"]} amountCents={order["amountCents"]} payloadBytes={((byte[])order["payload"]).Length} partition={result.Partition.Value} offset={result.Offset.Value}");
+            if (Interlocked.Increment(ref processed) % workload.PrintEvery == 0)
+                Console.WriteLine($"orderId={order["orderId"]} customerId={order["customerId"]} amountCents={order["amountCents"]} payloadBytes={(order.TryGetValue("payload", out var payload) && payload is byte[] bytes ? bytes.Length : 0)} partition={result.Partition.Value} offset={result.Offset.Value}");
             consumer.StoreOffset(result);
         }
         catch (Exception exception)
@@ -75,9 +59,3 @@ try
 catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
 finally { consumer.Close(); }
 if (failed || fatalError) Environment.ExitCode = 1;
-
-sealed class BlockingDeserializer<T>(IAsyncDeserializer<T> inner) : IDeserializer<T>
-{
-    public T Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context) =>
-        inner.DeserializeAsync(data.ToArray(), isNull, context).GetAwaiter().GetResult();
-}

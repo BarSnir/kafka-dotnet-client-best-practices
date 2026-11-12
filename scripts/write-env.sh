@@ -14,6 +14,5 @@ for name in producer_kafka_bootstrap_servers producer_kafka_api_key producer_kaf
   env_name=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
   printf '%s=%s\n' "$env_name" "${value#SASL_SSL://}" >> "$temp_env"
 done
-printf 'EVENTS_PER_SECOND=10\n' >> "$temp_env"
 chmod 600 "$temp_env"
 mv "$temp_env" ../.env

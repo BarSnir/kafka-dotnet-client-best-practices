@@ -1,92 +1,70 @@
 using Avro.Generic;
 using Confluent.Kafka;
 using Confluent.SchemaRegistry;
-using Confluent.SchemaRegistry.Serdes;
 using Shared;
 using System.Runtime.InteropServices;
 
 var config = AppConfig.FromEnvironment();
-var eventsPerSecond = int.TryParse(Environment.GetEnvironmentVariable("EVENTS_PER_SECOND"), out var value) ? Math.Max(1, value) : 10;
-var payloadBytes = int.TryParse(Environment.GetEnvironmentVariable("PAYLOAD_BYTES"), out var bytes) ? Math.Clamp(bytes, 0, 512 * 1024) : 0;
-var hotPartition = bool.TryParse(Environment.GetEnvironmentVariable("HOT_PARTITION"), out var hot) && hot;
-var printEvery = int.TryParse(Environment.GetEnvironmentVariable("PRINT_EVERY"), out var printValue) ? Math.Max(1, printValue) : 1;
+var workload = WorkloadOptions.Load();
 using var stop = new CancellationTokenSource();
 var fatalError = false;
 Console.CancelKeyPress += (_, eventArgs) => { eventArgs.Cancel = true; stop.Cancel(); };
-using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, _ => stop.Cancel());
+using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal => { signal.Cancel = true; stop.Cancel(); });
 
 using var metrics = new KafkaMetrics("producer");
 using var schemaRegistry = new CachedSchemaRegistryClient(config.SchemaRegistry());
-var producerConfig = new ProducerConfig(config.Kafka("orders-producer"))
+using var producer = ProducerFactory.Create(config, schemaRegistry, metrics.Publish, error =>
 {
-    EnableIdempotence = true,
-    Acks = Acks.All,
-    MessageTimeoutMs = 30000
-};
-using var producer = new ProducerBuilder<string, GenericRecord>(producerConfig)
-    .SetValueSerializer(new AvroSerializer<GenericRecord>(schemaRegistry, new AvroSerializerConfig
-    {
-        AutoRegisterSchemas = false,
-        SubjectNameStrategy = SubjectNameStrategy.Topic
-    }))
-    .SetStatisticsHandler((_, statistics) => metrics.Publish(statistics))
-    .SetErrorHandler((_, error) =>
-    {
-        Console.Error.WriteLine(error.IsFatal ? $"fatal Kafka error: {error.Reason}" : $"recoverable Kafka notification: {error.Reason}");
-        if (error.IsFatal) { fatalError = true; stop.Cancel(); }
-    })
-    .Build();
+    Console.Error.WriteLine($"Kafka notification code={error.Code} fatal={error.IsFatal}: {error.Reason}");
+    if (error.IsFatal) { fatalError = true; stop.Cancel(); }
+});
 
-using var outstanding = new SemaphoreSlim(100);
+const int maxOutstanding = 100;
+var deliveries = new List<Task>(maxOutstanding);
 long succeeded = 0;
 long failed = 0;
+
+async Task DeliverAsync(GenericRecord order)
+{
+    var id = (string)order["orderId"];
+    try
+    {
+        var message = new Message<string, GenericRecord> { Key = (string)order["customerId"], Value = order };
+        var result = await producer.ProduceAsync("orders", message);
+        if (Interlocked.Increment(ref succeeded) % workload.PrintEvery == 0)
+            Console.WriteLine($"delivered orderId={id} partition={result.Partition.Value} offset={result.Offset.Value}");
+    }
+    catch (ProduceException<string, GenericRecord> ex)
+    {
+        Interlocked.Increment(ref failed);
+        Console.Error.WriteLine($"orderId={id} status={ex.DeliveryResult?.Status} {KafkaFailures.Describe(ex)}");
+        if (ex.Error.IsFatal || KafkaFailures.RequiresIntervention(ex.Error.Code)) stop.Cancel();
+    }
+}
+
 try
 {
     while (!stop.IsCancellationRequested)
     {
-        await outstanding.WaitAsync(stop.Token);
-        var order = OrderFactory.Create(payloadBytes, hotPartition);
-        var orderId = (string)order["orderId"];
-        var customerId = (string)order["customerId"];
-        Task<DeliveryResult<string, GenericRecord>> send;
-        try { send = producer.ProduceAsync("orders", new Message<string, GenericRecord> { Key = customerId, Value = order }); }
-        catch
+        if (deliveries.Count == maxOutstanding)
         {
-            outstanding.Release();
-            throw;
-        }
-        _ = send
-            .ContinueWith(task =>
+            await Task.WhenAny(deliveries).WaitAsync(stop.Token);
+            foreach (var completed in deliveries.Where(task => task.IsCompleted).ToArray())
             {
-                try
-                {
-                    if (task.IsFaulted || task.IsCanceled)
-                    {
-                        Interlocked.Increment(ref failed);
-                        Console.Error.WriteLine($"final delivery failure for order {orderId}: {task.Exception?.GetBaseException().Message ?? "cancelled"}");
-                    }
-                    else
-                    {
-                        if (Interlocked.Increment(ref succeeded) % printEvery == 0)
-                            Console.WriteLine($"delivered orderId={orderId} partition={task.Result.Partition.Value} offset={task.Result.Offset.Value}");
-                    }
-                }
-                finally { outstanding.Release(); }
-            }, TaskScheduler.Default);
-        await Task.Delay(TimeSpan.FromSeconds(1d / eventsPerSecond), stop.Token);
+                await completed;
+                deliveries.Remove(completed);
+            }
+        }
+        deliveries.Add(DeliverAsync(OrderFactory.Create(workload.PayloadBytes, workload.HotPartition)));
+        await Task.Delay(TimeSpan.FromSeconds(1d / workload.EventsPerSecond), stop.Token);
     }
 }
 catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
 finally
 {
-    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-    var acquired = 0;
-    try
-    {
-        for (; acquired < 100; acquired++) await outstanding.WaitAsync(timeout.Token);
-    }
-    catch (OperationCanceledException) when (timeout.IsCancellationRequested) { }
-    var pending = 100 - acquired - outstanding.CurrentCount;
-    Console.WriteLine($"delivery summary: succeeded={Interlocked.Read(ref succeeded)} failed={Interlocked.Read(ref failed)} pending={pending}");
-    if (pending > 0 || Interlocked.Read(ref failed) > 0 || fatalError) Environment.ExitCode = 1;
+    try { await Task.WhenAll(deliveries).WaitAsync(TimeSpan.FromSeconds(30)); }
+    catch (TimeoutException) { Environment.ExitCode = 1; }
+    var pending = deliveries.Count(task => !task.IsCompleted);
+    Console.WriteLine($"delivery summary: succeeded={succeeded} failed={failed} pending={pending}");
+    if (pending > 0 || failed > 0 || fatalError) Environment.ExitCode = 1;
 }

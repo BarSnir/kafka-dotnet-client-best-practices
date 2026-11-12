@@ -10,10 +10,10 @@ x-producer: &producer
     SCHEMA_REGISTRY_URL: ${PRODUCER_SCHEMA_REGISTRY_URL}
     SCHEMA_REGISTRY_API_KEY: ${PRODUCER_SCHEMA_REGISTRY_API_KEY}
     SCHEMA_REGISTRY_API_SECRET: ${PRODUCER_SCHEMA_REGISTRY_API_SECRET}
-    EVENTS_PER_SECOND: 10
-    PAYLOAD_BYTES: 0
-    HOT_PARTITION: "false"
-    PRINT_EVERY: 1
+    EVENTS_PER_SECOND: "${EVENTS_PER_SECOND:-}"
+    PAYLOAD_BYTES: "${PAYLOAD_BYTES:-}"
+    HOT_PARTITION: "${HOT_PARTITION:-}"
+    PRINT_EVERY: "${PRINT_EVERY:-}"
   expose: ["8080"]
 
 x-consumer: &consumer
@@ -28,7 +28,7 @@ x-consumer: &consumer
     SCHEMA_REGISTRY_URL: ${CONSUMER_SCHEMA_REGISTRY_URL}
     SCHEMA_REGISTRY_API_KEY: ${CONSUMER_SCHEMA_REGISTRY_API_KEY}
     SCHEMA_REGISTRY_API_SECRET: ${CONSUMER_SCHEMA_REGISTRY_API_SECRET}
-    PRINT_EVERY: 1
+    PRINT_EVERY: "${PRINT_EVERY:-}"
   expose: ["8080"]
 
 services:
@@ -43,31 +43,25 @@ services:
     profiles: [high-throughput]
     environment:
       <<: *producer-env
-      EVENTS_PER_SECOND: 100
-      PAYLOAD_BYTES: 131072
-      HOT_PARTITION: "true"
-      PRINT_EVERY: 100
+      LOAD_PROFILE: high-throughput
   consumer-high-throughput:
     <<: *consumer
     profiles: [high-throughput]
     environment:
       <<: *consumer-env
-      PRINT_EVERY: 100
+      LOAD_PROFILE: high-throughput
   producer-throttle:
     <<: *producer
     profiles: [throttle]
     environment:
       <<: *producer-env
-      EVENTS_PER_SECOND: 200
-      PAYLOAD_BYTES: 131072
-      HOT_PARTITION: "true"
-      PRINT_EVERY: 100
+      LOAD_PROFILE: throttle
   consumer-throttle:
     <<: *consumer
     profiles: [throttle]
     environment:
       <<: *consumer-env
-      PRINT_EVERY: 100
+      LOAD_PROFILE: throttle
   prometheus:
     image: prom/prometheus:v3.0.1
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]

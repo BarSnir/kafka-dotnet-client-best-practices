@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using System.Threading.Channels;
 using System.Globalization;
 using System.Net;
 using System.Text;
@@ -10,13 +10,12 @@ public sealed class KafkaMetrics : IDisposable
 {
     private readonly string _role;
     private readonly string _instance = Environment.MachineName;
-    private readonly object _gate = new();
-    private string? _latest;
+    private readonly Channel<string> _statistics = Channel.CreateUnbounded<string>();
     private readonly CancellationTokenSource _stop = new();
     private readonly Task _parser;
     private readonly HttpListener _listener = new();
     private readonly Task _server;
-    private Snapshot _snapshot = new();
+    private volatile Snapshot _snapshot = new();
 
     public KafkaMetrics(string role)
     {
@@ -29,28 +28,23 @@ public sealed class KafkaMetrics : IDisposable
 
     public void Publish(string json)
     {
-        lock (_gate) _latest = json;
+        _statistics.Writer.TryWrite(json);
     }
 
     private async Task ParseLoop()
     {
         var throughputReported = false;
-        while (!_stop.IsCancellationRequested)
+        await foreach (var json in _statistics.Reader.ReadAllAsync())
         {
-            string? json;
-            lock (_gate) { json = _latest; _latest = null; }
-            if (json is not null)
+            try
             {
-                try
-                {
-                    var current = Snapshot.Parse(json, _role);
-                    if (_role == "producer" && !throughputReported)
-                        throughputReported = current.TryLogStartupThroughput(_snapshot);
-                    _snapshot = current;
-                }
-                catch (JsonException ex) { Console.Error.WriteLine($"statistics parse error: {ex.Message}"); }
+                var previous = _snapshot;
+                var current = Snapshot.Parse(json, _role, previous);
+                if (_role == "producer" && !throughputReported)
+                    throughputReported = current.TryLogStartupThroughput(previous);
+                _snapshot = current;
             }
-            try { await Task.Delay(250, _stop.Token); } catch (OperationCanceledException) { }
+            catch (JsonException ex) { Console.Error.WriteLine($"statistics parse error: {ex.Message}"); }
         }
     }
 
@@ -73,6 +67,7 @@ public sealed class KafkaMetrics : IDisposable
 
     public void Dispose()
     {
+        _statistics.Writer.TryComplete();
         _stop.Cancel();
         _listener.Stop();
         try { Task.WaitAll([_parser, _server], TimeSpan.FromSeconds(2)); } catch (AggregateException) { }
@@ -105,7 +100,9 @@ public sealed class KafkaMetrics : IDisposable
         private readonly Dictionary<string, double> _partitionBytes = [];
         private readonly Dictionary<string, double> _lags = [];
 
-        public static Snapshot Parse(string json, string role)
+        private readonly Dictionary<string, (long SeenAt, double PeakMs)> _lastThrottle = [];
+
+        public static Snapshot Parse(string json, string role, Snapshot previous)
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
@@ -129,7 +126,15 @@ public sealed class KafkaMetrics : IDisposable
                     if (broker.Value.TryGetProperty("rtt", out var rtt) && Number(rtt, "cnt") > 0)
                         snapshot._brokerRtt[broker.Name] = Number(rtt, "p95") / 1000d;
                     if (broker.Value.TryGetProperty("throttle", out var throttle))
-                        snapshot._brokerThrottle[broker.Name] = Number(throttle, "cnt") > 0 ? Number(throttle, "avg") : 0;
+                    {
+                        var sampled = Number(throttle, "cnt") > 0;
+                        snapshot._brokerThrottle[broker.Name] = sampled ? Number(throttle, "avg") : 0;
+                        var peak = Number(throttle, "max");
+                        if (sampled && peak > 0)
+                            snapshot._lastThrottle[broker.Name] = (Environment.TickCount64, peak);
+                        else if (previous._lastThrottle.TryGetValue(broker.Name, out var last))
+                            snapshot._lastThrottle[broker.Name] = last;
+                    }
                 }
             if (root.TryGetProperty("topics", out var topics) && topics.TryGetProperty("orders", out var orders) && orders.TryGetProperty("partitions", out var partitions))
                 foreach (var partition in partitions.EnumerateObject())
@@ -152,6 +157,7 @@ public sealed class KafkaMetrics : IDisposable
         {
             var labels = $"client_id=\"{Escape(_clientId)}\",role=\"{role}\",instance=\"{Escape(instance)}\"";
             var builder = new StringBuilder();
+            Add(builder, "kafka_client_tx_bytes_total", _values.GetValueOrDefault("tx_bytes"), labels);
             Add(builder, "kafka_client_txmsgs_total", _values.GetValueOrDefault("txmsgs"), labels);
             Add(builder, "kafka_client_txmsg_bytes_total", _values.GetValueOrDefault("txmsg_bytes"), labels);
             Add(builder, "kafka_client_msg_cnt", _values.GetValueOrDefault("msg_cnt"), labels);
@@ -162,6 +168,11 @@ public sealed class KafkaMetrics : IDisposable
             foreach (var item in _brokerRetries) Add(builder, "kafka_client_broker_txretries_total", item.Value, $"{labels},broker=\"{Escape(item.Key)}\"");
             foreach (var item in _brokerRtt) Add(builder, "kafka_client_broker_rtt_p95_ms", item.Value, $"{labels},broker=\"{Escape(item.Key)}\"");
             foreach (var item in _brokerThrottle) Add(builder, "kafka_client_broker_throttle_avg_ms", item.Value, $"{labels},broker=\"{Escape(item.Key)}\"");
+            foreach (var broker in _brokerThrottle.Keys)
+            {
+                var recent = _lastThrottle.TryGetValue(broker, out var last) && Environment.TickCount64 - last.SeenAt < 60_000;
+                Add(builder, "kafka_client_broker_recent_throttle_ms", recent ? last.PeakMs : 0, $"{labels},broker=\"{Escape(broker)}\"");
+            }
             foreach (var item in _partitionBytes) Add(builder, "kafka_client_partition_tx_bytes_total", item.Value, $"{labels},topic=\"orders\",partition=\"{item.Key}\"");
             foreach (var item in _lags) Add(builder, "kafka_client_consumer_lag", item.Value, $"{labels},topic=\"orders\",partition=\"{item.Key}\"");
             return builder.ToString();

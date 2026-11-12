@@ -200,10 +200,10 @@
     },
     {
       "type": "timeseries",
-      "title": "Producer throttle time (ms)",
+      "title": "Producer recent broker throttle (ms)",
       "targets": [
         {
-          "expr": "kafka_client_broker_throttle_avg_ms{role=\"producer\"}",
+          "expr": "kafka_client_broker_recent_throttle_ms{role=\"producer\"}",
           "refId": "A",
           "legendFormat": "{{client_id}} / {{broker}}"
         }
@@ -213,14 +213,15 @@
         "y": 35,
         "w": 12,
         "h": 8
-      }
+      },
+      "description": "Peak delay in the latest positive librdkafka statistics interval for this broker. Held for 60 seconds after observation."
     },
     {
       "type": "timeseries",
-      "title": "Consumer throttle time (ms)",
+      "title": "Consumer recent broker throttle (ms)",
       "targets": [
         {
-          "expr": "kafka_client_broker_throttle_avg_ms{role=\"consumer\"}",
+          "expr": "kafka_client_broker_recent_throttle_ms{role=\"consumer\"}",
           "refId": "A",
           "legendFormat": "{{client_id}} / {{broker}}"
         }
@@ -230,7 +231,8 @@
         "y": 35,
         "w": 12,
         "h": 8
-      }
+      },
+      "description": "Peak delay in the latest positive librdkafka statistics interval for this broker. Held for 60 seconds after observation."
     },
     {
       "type": "timeseries",
@@ -245,6 +247,24 @@
       "gridPos": {
         "x": 0,
         "y": 43,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Producer network send rate (MB/s)",
+      "description": "All Kafka request bytes sent by this client, including headers, protocol overhead and retries.",
+      "targets": [
+        {
+          "expr": "rate(kafka_client_tx_bytes_total{role=\"producer\",client_id!=\"\"}[1m]) / 1e6",
+          "refId": "A",
+          "legendFormat": "{{client_id}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 51,
         "w": 24,
         "h": 8
       }

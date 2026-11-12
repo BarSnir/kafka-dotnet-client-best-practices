@@ -40,7 +40,12 @@ public sealed class KafkaMetrics : IDisposable
             lock (_gate) { json = _latest; _latest = null; }
             if (json is not null)
             {
-                try { _snapshot = Snapshot.Parse(json, _role); }
+                try
+                {
+                    var current = Snapshot.Parse(json, _role);
+                    if (_role == "producer") current.LogThroughputSince(_snapshot);
+                    _snapshot = current;
+                }
                 catch (JsonException ex) { Console.Error.WriteLine($"statistics parse error: {ex.Message}"); }
             }
             try { await Task.Delay(250, _stop.Token); } catch (OperationCanceledException) { }
@@ -75,6 +80,18 @@ public sealed class KafkaMetrics : IDisposable
 
     private sealed class Snapshot
     {
+        private double _timestampUs;
+
+        public void LogThroughputSince(Snapshot previous)
+        {
+            if (previous._timestampUs <= 0 || _timestampUs <= previous._timestampUs) return;
+            var seconds = (_timestampUs - previous._timestampUs) / 1_000_000;
+            var messages = (_values["txmsgs"] - previous._values["txmsgs"]) / seconds;
+            var payloadMB = (_values["txmsg_bytes"] - previous._values["txmsg_bytes"]) / seconds / 1_000_000;
+            var wireMB = (_values["tx_bytes"] - previous._values["tx_bytes"]) / seconds / 1_000_000;
+            Console.WriteLine($"throughput client.id={_clientId} records/s={messages:F1} payload_MB/s={payloadMB:F4} sent_MB/s={wireMB:F4}");
+        }
+
         private string _clientId = "";
         private readonly Dictionary<string, double> _values = [];
         private readonly Dictionary<string, double> _brokerRetries = [];
@@ -87,7 +104,8 @@ public sealed class KafkaMetrics : IDisposable
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            var snapshot = new Snapshot();
+            var snapshot = new Snapshot { _timestampUs = Number(root, "ts") };
+            snapshot._values["tx_bytes"] = Number(root, "tx_bytes");
             if (root.TryGetProperty("client_id", out var id)) snapshot._clientId = id.GetString() ?? "";
             snapshot._values["txmsgs"] = Number(root, "txmsgs");
             snapshot._values["txmsg_bytes"] = Number(root, "txmsg_bytes");

@@ -20,6 +20,21 @@ Open Grafana at http://localhost:3000 (admin/admin) and Prometheus at http://loc
 
 Scale consumers with `docker compose --profile standard up -d --scale consumer-standard=2`. Prometheus discovers replicas through Docker DNS. With three default partitions, the two `Partitions assigned per consumer` series should sum to three after rebalance.
 
+## Customer demo stages
+
+From the repository root with the runtime .env configured, run:
+
+```sh
+sh scripts/01-monitoring.sh
+sh scripts/02-standard.sh
+# Ctrl+C, then
+sh scripts/03-high-throughput.sh
+# Ctrl+C, then
+sh scripts/04-throttle.sh
+```
+
+Monitoring runs in the background. Each workload script follows the two clients in the foreground. Ctrl+C stops and removes that stage's clients. The next stage reuses monitoring and its history. After two statistics snapshots the producer logs measured records/s, Kafka message bytes/s in decimal MB, and total bytes sent/s in decimal MB (including protocol traffic). Grafana legends use the client ID, composed of service name and container hostname.
+
 ## Throughput demonstration
 
 Start standard and high-throughput together:
@@ -28,7 +43,7 @@ Start standard and high-throughput together:
 docker compose --profile standard --profile high-throughput up --build -d
 ```
 
-Each Kafka client ID matches its Compose service name. Both producers write to orders. Consumers share the orders-demo group and divide its partitions. The high-throughput producer targets 5 MB/s of payload (100 records/s × 50,000 bytes). The throttle profile targets 100 records/s with 120,000 bytes per record. Both use one customer key.
+Each Kafka client ID includes its Compose service name and container hostname. Both producers write to orders. Consumers share the orders-demo group and divide its partitions. The high-throughput producer targets 5 MB/s of payload (100 records/s × 50,000 bytes). The throttle profile targets 100 records/s with 120,000 bytes per record. Both use one customer key.
 
 On startup each producer reads the latest orders-value writer schema from the configured registry. With the four-field schema it puts the random bytes in payload. With the original three-field schema it carries the same bytes in a demo-payload Kafka header. Terraform provisions the subject before startup.
 

@@ -16,7 +16,7 @@ public sealed record AppConfig(string BootstrapServers, string KafkaKey, string 
         SaslMechanism = SaslMechanism.Plain,
         SaslUsername = KafkaKey,
         SaslPassword = KafkaSecret,
-        ClientId = Environment.GetEnvironmentVariable("KAFKA_CLIENT_ID") ?? clientId,
+        ClientId = $"{Environment.GetEnvironmentVariable("KAFKA_CLIENT_ID") ?? clientId}-{Environment.MachineName}",
         StatisticsIntervalMs = 10000,
         ApiVersionRequestTimeoutMs = 30000
     };

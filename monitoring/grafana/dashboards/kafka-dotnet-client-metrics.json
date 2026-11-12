@@ -2,7 +2,7 @@
   "title": "Kafka .NET Client Metrics",
   "uid": "kafka-dotnet-client-metrics",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "panels": [
     {
       "type": "row",
@@ -22,7 +22,8 @@
       "targets": [
         {
           "expr": "rate(kafka_client_txmsgs_total{role=\"producer\"}[1m])",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}}"
         }
       ],
       "gridPos": {
@@ -38,7 +39,8 @@
       "targets": [
         {
           "expr": "rate(kafka_client_txmsg_bytes_total{role=\"producer\"}[1m])",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}}"
         }
       ],
       "gridPos": {
@@ -54,7 +56,8 @@
       "targets": [
         {
           "expr": "kafka_client_msg_cnt{role=\"producer\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}}"
         }
       ],
       "gridPos": {
@@ -70,7 +73,8 @@
       "targets": [
         {
           "expr": "rate(kafka_client_broker_txretries_total{role=\"producer\"}[1m])",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}} / {{broker}}"
         }
       ],
       "gridPos": {
@@ -86,7 +90,8 @@
       "targets": [
         {
           "expr": "kafka_client_broker_rtt_p95_ms{role=\"producer\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}} / {{broker}}"
         }
       ],
       "gridPos": {
@@ -114,7 +119,8 @@
       "targets": [
         {
           "expr": "rate(kafka_client_rxmsgs_total{role=\"consumer\"}[1m])",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}}"
         }
       ],
       "gridPos": {
@@ -130,7 +136,8 @@
       "targets": [
         {
           "expr": "rate(kafka_client_rxmsg_bytes_total{role=\"consumer\"}[1m])",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}}"
         }
       ],
       "gridPos": {
@@ -146,7 +153,8 @@
       "targets": [
         {
           "expr": "kafka_client_consumer_lag{role=\"consumer\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}} / p{{partition}}"
         }
       ],
       "gridPos": {
@@ -162,7 +170,8 @@
       "targets": [
         {
           "expr": "kafka_client_rebalance_cnt_total{role=\"consumer\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}}"
         }
       ],
       "gridPos": {
@@ -178,7 +187,8 @@
       "targets": [
         {
           "expr": "kafka_client_assignment_size{role=\"consumer\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}}"
         }
       ],
       "gridPos": {
@@ -194,7 +204,8 @@
       "targets": [
         {
           "expr": "kafka_client_broker_throttle_avg_ms{role=\"producer\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}} / {{broker}}"
         }
       ],
       "gridPos": {
@@ -210,7 +221,8 @@
       "targets": [
         {
           "expr": "kafka_client_broker_throttle_avg_ms{role=\"consumer\"}",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{client_id}} / {{broker}}"
         }
       ],
       "gridPos": {
@@ -227,7 +239,7 @@
         {
           "expr": "sum by (client_id, partition) (rate(kafka_client_partition_tx_bytes_total[1m])) / 1e6",
           "refId": "A",
-          "legendFormat": "{{client_id}} partition {{partition}}"
+          "legendFormat": "{{client_id}} / p{{partition}}"
         }
       ],
       "gridPos": {

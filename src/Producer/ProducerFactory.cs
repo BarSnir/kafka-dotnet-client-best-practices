@@ -10,6 +10,7 @@ internal static class ProducerFactory
     {
         var producerConfig = new ProducerConfig(config.Kafka("orders-producer"))
         {
+            StatisticsIntervalMs = 1000,
             EnableIdempotence = true,
             Acks = Acks.All,
             MessageTimeoutMs = 30000

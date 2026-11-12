@@ -33,7 +33,7 @@ sh scripts/03-high-throughput.sh
 sh scripts/04-throttle.sh
 ```
 
-Monitoring runs in the background. Each workload script follows the two clients in the foreground. Ctrl+C stops and removes that stage's clients. The next stage reuses monitoring and its history. After two statistics snapshots the producer logs measured records/s, Kafka message bytes/s in decimal MB, and total bytes sent/s in decimal MB (including protocol traffic). Grafana legends use the client ID, composed of service name and container hostname.
+Monitoring runs in the background. Each workload script prints stage status and producer throughput, forwards client stderr, and hides per-record stdout and successful Docker build output. Ctrl+C stops and removes that stage's clients. The next stage reuses monitoring and its history. After the first two one-second statistics snapshots the script reports measured records/s, Kafka message bytes/s in decimal MB, and total bytes sent/s in decimal MB (including protocol traffic). Grafana legends use the client ID, composed of service name and container hostname.
 
 ## Throughput demonstration
 

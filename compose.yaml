@@ -35,14 +35,21 @@ services:
   producer-standard:
     <<: *producer
     profiles: [standard]
+    environment:
+      <<: *producer-env
+      KAFKA_CLIENT_ID: producer-standard
   consumer-standard:
     <<: *consumer
     profiles: [standard]
+    environment:
+      <<: *consumer-env
+      KAFKA_CLIENT_ID: consumer-standard
   producer-high-throughput:
     <<: *producer
     profiles: [high-throughput]
     environment:
       <<: *producer-env
+      KAFKA_CLIENT_ID: producer-high-throughput
       EVENTS_PER_SECOND: 100
       PAYLOAD_BYTES: 131072
       HOT_PARTITION: "true"
@@ -52,12 +59,14 @@ services:
     profiles: [high-throughput]
     environment:
       <<: *consumer-env
+      KAFKA_CLIENT_ID: consumer-high-throughput
       PRINT_EVERY: 100
   producer-throttle:
     <<: *producer
     profiles: [throttle]
     environment:
       <<: *producer-env
+      KAFKA_CLIENT_ID: producer-throttle
       EVENTS_PER_SECOND: 100
       PAYLOAD_BYTES: 120000
       HOT_PARTITION: "true"
@@ -67,6 +76,7 @@ services:
     profiles: [throttle]
     environment:
       <<: *consumer-env
+      KAFKA_CLIENT_ID: consumer-throttle
       PRINT_EVERY: 100
   prometheus:
     image: prom/prometheus:v3.0.1

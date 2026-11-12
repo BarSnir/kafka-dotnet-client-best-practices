@@ -22,7 +22,15 @@ Scale consumers with `docker compose --profile standard up -d --scale consumer-s
 
 ## Throughput demonstration
 
-Run one profile at a time. Switch with `docker compose --profile standard down` (or the profile currently running), then `docker compose --profile high-throughput up --build -d` or `docker compose --profile throttle up --build -d`. For a fresh start use `docker compose --profile standard up --build -d`. The high-throughput profile requests 100 records/s of 128 KiB each, and throttle requests 100 records/s of 120,000 bytes each (12 decimal MB/s of offered payload). Both use one customer key, sending traffic to one partition. The consumer reads the same Avro payload and logs every 100th record, preserving processing and offset storage for every record. The original three business fields remain; the optional `payload` bytes field carries random, poorly compressible demo data. Apply the updated Terraform Avro schema before starting either load profile.
+Start standard and high-throughput together:
+
+```bash
+docker compose --profile standard --profile high-throughput up --build -d
+```
+
+Each Kafka client ID matches its Compose service name. Both producers write to orders. Consumers share the orders-demo group and divide its partitions. The high-throughput producer targets 100 records/s with 128 KiB of padding per record; throttle targets 100 records/s with 120,000 bytes per record. Both use one customer key.
+
+On startup each producer reads the latest orders-value writer schema from the configured registry. With the four-field schema it puts the random bytes in payload. With the original three-field schema it carries the same bytes in a demo-payload Kafka header. Terraform provisions the subject before startup.
 
 Each service declares its workload in compose.yaml. In the throttle profile, compare **Produced MB/s by partition** with **Producer throttle time (ms)**. A positive broker throttle time confirms throttling during that sample window.
 

@@ -75,6 +75,7 @@ public sealed class KafkaMetrics : IDisposable
 
     private sealed class Snapshot
     {
+        private string _clientId = "";
         private readonly Dictionary<string, double> _values = [];
         private readonly Dictionary<string, double> _brokerRetries = [];
         private readonly Dictionary<string, double> _brokerRtt = [];
@@ -87,6 +88,7 @@ public sealed class KafkaMetrics : IDisposable
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
             var snapshot = new Snapshot();
+            if (root.TryGetProperty("client_id", out var id)) snapshot._clientId = id.GetString() ?? "";
             snapshot._values["txmsgs"] = Number(root, "txmsgs");
             snapshot._values["txmsg_bytes"] = Number(root, "txmsg_bytes");
             snapshot._values["msg_cnt"] = Number(root, "msg_cnt");
@@ -125,7 +127,7 @@ public sealed class KafkaMetrics : IDisposable
 
         public string Render(string role, string instance)
         {
-            var labels = $"role=\"{role}\",instance=\"{Escape(instance)}\"";
+            var labels = $"client_id=\"{Escape(_clientId)}\",role=\"{role}\",instance=\"{Escape(instance)}\"";
             var builder = new StringBuilder();
             Add(builder, "kafka_client_txmsgs_total", _values.GetValueOrDefault("txmsgs"), labels);
             Add(builder, "kafka_client_txmsg_bytes_total", _values.GetValueOrDefault("txmsg_bytes"), labels);

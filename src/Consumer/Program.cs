@@ -45,7 +45,7 @@ try
         {
             var order = result.Message.Value;
             if (Interlocked.Increment(ref processed) % workload.PrintEvery == 0)
-                Console.WriteLine($"orderId={order["orderId"]} customerId={order["customerId"]} amountCents={order["amountCents"]} payloadBytes={(order.TryGetValue("payload", out var payload) && payload is byte[] bytes ? bytes.Length : 0)} partition={result.Partition.Value} offset={result.Offset.Value}");
+                Console.WriteLine($"orderId={order["orderId"]} customerId={order["customerId"]} amountCents={order["amountCents"]} payloadBytes={(order.TryGetValue("payload", out var payload) && payload is byte[] bytes ? bytes.Length : result.Message.Headers?.LastOrDefault(h => h.Key == "demo-payload")?.GetValueBytes()?.Length ?? 0)} partition={result.Partition.Value} offset={result.Offset.Value}");
             consumer.StoreOffset(result);
         }
         catch (Exception exception)

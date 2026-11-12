@@ -225,9 +225,9 @@
       "title": "Produced MB/s by partition",
       "targets": [
         {
-          "expr": "sum by (partition) (rate(kafka_client_partition_tx_bytes_total[1m])) / 1e6",
+          "expr": "sum by (client_id, partition) (rate(kafka_client_partition_tx_bytes_total[1m])) / 1e6",
           "refId": "A",
-          "legendFormat": "partition {{partition}}"
+          "legendFormat": "{{client_id}} partition {{partition}}"
         }
       ],
       "gridPos": {

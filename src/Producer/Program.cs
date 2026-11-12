@@ -13,6 +13,9 @@ using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal =
 
 using var metrics = new KafkaMetrics("producer");
 using var schemaRegistry = new CachedSchemaRegistryClient(config.SchemaRegistry());
+var registered = await schemaRegistry.GetLatestSchemaAsync("orders-value");
+var orders = new OrderFactory((Avro.RecordSchema)Avro.Schema.Parse(registered.SchemaString));
+Console.WriteLine($"Using orders-value version {registered.Version} (id {registered.Id})");
 using var producer = ProducerFactory.Create(config, schemaRegistry, metrics.Publish, error =>
 {
     Console.Error.WriteLine($"Kafka notification code={error.Code} fatal={error.IsFatal}: {error.Reason}");
@@ -24,12 +27,11 @@ var deliveries = new List<Task>(maxOutstanding);
 long succeeded = 0;
 long failed = 0;
 
-async Task DeliverAsync(GenericRecord order)
+async Task DeliverAsync(Message<string, GenericRecord> message)
 {
-    var id = (string)order["orderId"];
+    var id = (string)message.Value["orderId"];
     try
     {
-        var message = new Message<string, GenericRecord> { Key = (string)order["customerId"], Value = order };
         var result = await producer.ProduceAsync("orders", message);
         if (Interlocked.Increment(ref succeeded) % workload.PrintEvery == 0)
             Console.WriteLine($"delivered orderId={id} partition={result.Partition.Value} offset={result.Offset.Value}");
@@ -58,7 +60,7 @@ try
                 deliveries.Remove(completed);
             }
         }
-        deliveries.Add(DeliverAsync(OrderFactory.Create(workload.PayloadBytes, workload.HotPartition)));
+        deliveries.Add(DeliverAsync(orders.Create(workload.PayloadBytes, workload.HotPartition)));
         nextSend += interval;
         var delay = nextSend - clock.Elapsed;
         if (delay > TimeSpan.Zero) await Task.Delay(delay, stop.Token);

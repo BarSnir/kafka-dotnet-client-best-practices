@@ -38,15 +38,12 @@ public sealed class KafkaMetrics : IDisposable
 
     private async Task ParseLoop()
     {
-        var throughputReported = false;
         await foreach (var json in _statistics.Reader.ReadAllAsync())
         {
             try
             {
                 var previous = _snapshot;
                 var current = Snapshot.Parse(json, _role, previous);
-                if (_role == "producer" && !throughputReported)
-                    throughputReported = current.TryLogStartupThroughput(previous);
                 _snapshot = current;
             }
             catch (JsonException ex) { Console.Error.WriteLine($"statistics parse error: {ex.Message}"); }
@@ -83,19 +80,6 @@ public sealed class KafkaMetrics : IDisposable
     private sealed class Snapshot
     {
         private double _timestampUs;
-
-        public bool TryLogStartupThroughput(Snapshot previous)
-        {
-            // The first window with deliveries can include a startup backlog.
-            if (previous._timestampUs <= 0 || previous._values["txmsgs"] == 0) return false;
-            var elapsedUs = _timestampUs - previous._timestampUs;
-            var bytes = _values["txmsg_bytes"] - previous._values["txmsg_bytes"];
-            if (elapsedUs <= 0 || bytes <= 0) return false;
-
-            var megabytesPerSecond = bytes / elapsedUs; // bytes/µs equals decimal MB/s
-            Console.WriteLine(FormattableString.Invariant($"payload_MB/s={megabytesPerSecond:F4}"));
-            return true;
-        }
 
         private string _clientId = "";
         private readonly Dictionary<string, double> _values = [];

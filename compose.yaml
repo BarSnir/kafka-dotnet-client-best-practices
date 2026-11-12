@@ -67,7 +67,7 @@ services:
     environment:
       <<: *producer-env
       KAFKA_CLIENT_ID: producer-throttle
-      PARTITION_TARGET_MBPS: ${THROTTLE_PARTITION_MBPS:-7}
+      TARGET_MBPS: ${THROTTLE_TARGET_MBPS:-12}
       PAYLOAD_BYTES: 87500
       PRINT_EVERY: 100
   consumer-throttle:

@@ -14,8 +14,11 @@ internal sealed class OrderPublisher(
     private const int MaxOutstanding = 100;
     private static readonly TimeSpan DrainTimeout = TimeSpan.FromSeconds(30);
     private readonly List<Task> deliveries = new(MaxOutstanding);
+    private readonly object throughputGate = new();
+    private readonly Stopwatch throughputClock = Stopwatch.StartNew();
     private long succeeded;
     private long failed;
+    private long deliveredSinceReport;
 
     public async Task<int> RunAsync()
     {
@@ -39,8 +42,8 @@ internal sealed class OrderPublisher(
     private async Task PublishOrdersAsync(CancellationToken token)
     {
         var targets = GetTargets();
-        var secondsPerRecord = workload.PartitionTargetMbps > 0
-            ? workload.PayloadBytes * 8d / (workload.PartitionTargetMbps * 1_000_000d * targets.Length)
+        var secondsPerRecord = workload.TargetMbps > 0
+            ? workload.PayloadBytes * 8d / (workload.TargetMbps * 1_000_000d)
             : 1d / workload.EventsPerSecond;
         var interval = TimeSpan.FromSeconds(secondsPerRecord);
         var targetIndex = 0;
@@ -63,7 +66,7 @@ internal sealed class OrderPublisher(
 
     private TopicPartition[] GetTargets()
     {
-        if (workload.PartitionTargetMbps == 0) return [new TopicPartition(topic, Partition.Any)];
+        if (workload.TargetMbps == 0) return [new TopicPartition(topic, Partition.Any)];
         if (workload.PayloadBytes == 0) throw new ArgumentException("Per-partition pacing requires a positive PAYLOAD_BYTES.");
 
         using var admin = new DependentAdminClientBuilder(producer.Handle).Build();
@@ -88,7 +91,11 @@ internal sealed class OrderPublisher(
         try
         {
             var result = await producer.ProduceAsync(target, order);
-            if (workload.PayloadBytes > 0) metrics.RecordDeliveredPayload(result.Partition.Value, workload.PayloadBytes);
+            if (workload.PayloadBytes > 0)
+            {
+                metrics.RecordDeliveredPayload(result.Partition.Value, workload.PayloadBytes);
+                ReportThroughput(workload.PayloadBytes);
+            }
             if (Interlocked.Increment(ref succeeded) % workload.PrintEvery == 0)
                 Console.WriteLine($"delivered orderId={id} partition={result.Partition.Value} offset={result.Offset.Value}");
         }
@@ -98,6 +105,19 @@ internal sealed class OrderPublisher(
             Console.Error.WriteLine($"orderId={id} status={error.DeliveryResult?.Status} {KafkaFailures.Describe(error)}");
             if (error.Error.IsFatal || KafkaFailures.RequiresIntervention(error.Error.Code))
                 shutdown.StopWithFailure();
+        }
+    }
+
+    private void ReportThroughput(int bytes)
+    {
+        lock (throughputGate)
+        {
+            deliveredSinceReport += bytes;
+            if (throughputClock.Elapsed < TimeSpan.FromSeconds(1)) return;
+            var megabytesPerSecond = deliveredSinceReport / throughputClock.Elapsed.TotalSeconds / 1_000_000d;
+            Console.WriteLine(FormattableString.Invariant($"payload_MB/s={megabytesPerSecond:F4}"));
+            deliveredSinceReport = 0;
+            throughputClock.Restart();
         }
     }
 

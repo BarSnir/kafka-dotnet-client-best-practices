@@ -7,6 +7,7 @@ esac
 cd "$(dirname "$0")/.."
 producer="producer-$stage"
 consumer="consumer-$stage"
+monitoring="prometheus grafana"
 tmp=$(mktemp -d)
 started=false
 followers=
@@ -34,6 +35,13 @@ trap cleanup 0
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+if [ ! -f .env ]; then
+    echo "[$stage] Missing .env. Run ./scripts/write-env.sh after terraform apply." >&2
+    exit 1
+fi
+
+echo "[$stage] Starting monitoring"
+quiet compose up -d --wait $monitoring
 echo "[$stage] Building clients"
 quiet compose build --quiet "$producer" "$consumer"
 echo "[$stage] Starting clients (Ctrl+C to stop)"

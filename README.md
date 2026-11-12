@@ -28,7 +28,7 @@ Start standard and high-throughput together:
 docker compose --profile standard --profile high-throughput up --build -d
 ```
 
-Each Kafka client ID matches its Compose service name. Both producers write to orders. Consumers share the orders-demo group and divide its partitions. The high-throughput producer targets 100 records/s with 128 KiB of padding per record; throttle targets 100 records/s with 120,000 bytes per record. Both use one customer key.
+Each Kafka client ID matches its Compose service name. Both producers write to orders. Consumers share the orders-demo group and divide its partitions. The high-throughput producer targets 5 MB/s of payload (100 records/s × 50,000 bytes). The throttle profile targets 100 records/s with 120,000 bytes per record. Both use one customer key.
 
 On startup each producer reads the latest orders-value writer schema from the configured registry. With the four-field schema it puts the random bytes in payload. With the original three-field schema it carries the same bytes in a demo-payload Kafka header. Terraform provisions the subject before startup.
 

@@ -42,7 +42,7 @@ quiet compose up -d --no-build --no-deps "$producer" "$consumer"
 mkfifo "$tmp/rates"
 while IFS= read -r line; do
     case "$line" in
-        'throughput client.id='*) printf '[%s] %s\n' "$stage" "$line" ;;
+        payload_MB/s=*) printf '%s\n' "$line" ;;
     esac
 done <"$tmp/rates" &
 followers=$!

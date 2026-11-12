@@ -34,6 +34,7 @@ public sealed class KafkaMetrics : IDisposable
 
     private async Task ParseLoop()
     {
+        var throughputReported = false;
         while (!_stop.IsCancellationRequested)
         {
             string? json;
@@ -43,7 +44,8 @@ public sealed class KafkaMetrics : IDisposable
                 try
                 {
                     var current = Snapshot.Parse(json, _role);
-                    if (_role == "producer") current.LogThroughputSince(_snapshot);
+                    if (_role == "producer" && !throughputReported)
+                        throughputReported = current.TryLogStartupThroughput(_snapshot);
                     _snapshot = current;
                 }
                 catch (JsonException ex) { Console.Error.WriteLine($"statistics parse error: {ex.Message}"); }
@@ -82,14 +84,17 @@ public sealed class KafkaMetrics : IDisposable
     {
         private double _timestampUs;
 
-        public void LogThroughputSince(Snapshot previous)
+        public bool TryLogStartupThroughput(Snapshot previous)
         {
-            if (previous._timestampUs <= 0 || _timestampUs <= previous._timestampUs) return;
-            var seconds = (_timestampUs - previous._timestampUs) / 1_000_000;
-            var messages = (_values["txmsgs"] - previous._values["txmsgs"]) / seconds;
-            var payloadMB = (_values["txmsg_bytes"] - previous._values["txmsg_bytes"]) / seconds / 1_000_000;
-            var wireMB = (_values["tx_bytes"] - previous._values["tx_bytes"]) / seconds / 1_000_000;
-            Console.WriteLine($"throughput client.id={_clientId} records/s={messages:F1} payload_MB/s={payloadMB:F4} sent_MB/s={wireMB:F4}");
+            // The first window with deliveries can include a startup backlog.
+            if (previous._timestampUs <= 0 || previous._values["txmsgs"] == 0) return false;
+            var elapsedUs = _timestampUs - previous._timestampUs;
+            var bytes = _values["txmsg_bytes"] - previous._values["txmsg_bytes"];
+            if (elapsedUs <= 0 || bytes <= 0) return false;
+
+            var megabytesPerSecond = bytes / elapsedUs; // bytes/µs equals decimal MB/s
+            Console.WriteLine(FormattableString.Invariant($"payload_MB/s={megabytesPerSecond:F4}"));
+            return true;
         }
 
         private string _clientId = "";
